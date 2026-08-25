@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.wbarakat.session-restore",
   "name": "Session Restore",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Waleed",
   "description": "Save open windows before reboot or shutdown and restore them on the next boot — dual-boot friendly, with optional herdr agent resume",
   "kinds": [

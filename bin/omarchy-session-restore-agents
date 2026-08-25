@@ -6,12 +6,20 @@
 
 set -uo pipefail
 
-AGENTS="$HOME/.local/state/omarchy/herdr-agents.json"
+STATE_DIR="$HOME/.local/state/omarchy"
+AGENTS="$STATE_DIR/herdr-agents.json"
 [[ -f $AGENTS ]] || exit 0
 command -v herdr &>/dev/null || exit 0
+LOG="$STATE_DIR/session-restore.log"
+
+log() {
+  printf '%s agents: %s\n' "$(date --iso-8601=seconds)" "$*" >>"$LOG"
+}
 
 dry_run=false
 [[ ${1:-} == --dry-run ]] && dry_run=true
+
+$dry_run || log "started ($(jq 'length' "$AGENTS") agent(s))"
 
 # Wait for the herdr server. The relaunched client window starts it.
 panes=""
@@ -25,6 +33,7 @@ for _ in $(seq 45); do
 done
 
 if [[ -z $panes ]]; then
+  $dry_run || log "skipped because herdr did not become ready"
   $dry_run || mv "$AGENTS" "$AGENTS.skipped"
   exit 0
 fi
@@ -44,6 +53,7 @@ while IFS= read -r saved; do
       '.result.panes[] | select(.cwd == $c and (has("agent") | not)) | .pane_id' <<<"$panes" | head -1)
   fi
   if [[ -z $target ]]; then
+    $dry_run || log "no free pane for $kind in $cwd"
     notify-send "Session restore" "No free herdr pane found to resume $kind in $cwd" 2>/dev/null
     continue
   fi
@@ -55,10 +65,15 @@ while IFS= read -r saved; do
   if $dry_run; then
     echo "herdr agent start $kind --kind $kind --pane $target --timeout 60000 -- ${args[*]:-}"
   else
-    herdr agent start "$kind" --kind "$kind" --pane "$target" --timeout 60000 -- "${args[@]}" >/dev/null 2>&1 ||
+    if herdr agent start "$kind" --kind "$kind" --pane "$target" --timeout 60000 -- "${args[@]}" >/dev/null 2>&1; then
+      log "resumed $kind in pane $target"
+    else
+      log "failed to resume $kind in pane $target"
       notify-send "Session restore" "Could not resume $kind in herdr pane $target" 2>/dev/null
+    fi
     panes=$(herdr pane list 2>/dev/null) || break # refresh so the next agent picks a different pane
   fi
 done < <(jq -c '.[]' "$AGENTS")
 
 $dry_run || mv "$AGENTS" "$AGENTS.restored"
+$dry_run || log "completed"

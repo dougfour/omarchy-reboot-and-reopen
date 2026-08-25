@@ -8,6 +8,13 @@ set -euo pipefail
 STATE_DIR="$HOME/.local/state/omarchy"
 MANIFEST="$STATE_DIR/session.json"
 mkdir -p "$STATE_DIR"
+LOG="$STATE_DIR/session-restore.log"
+
+log() {
+  printf '%s save: %s\n' "$(date --iso-8601=seconds)" "$*" >>"$LOG"
+}
+
+log "started"
 
 TERMINAL_CLASSES=(Alacritty kitty foot com.mitchellh.ghostty org.wezfurlong.wezterm)
 SKIP_CLASSES=(walker)
@@ -67,6 +74,7 @@ done < <(hyprctl clients -j | jq -c '.[]')
 
 if ((${#entries[@]} == 0)); then
   rm -f "$MANIFEST"
+  log "no windows found"
   [[ ${1:-} == --quiet ]] || echo "No windows to save"
   exit 0
 fi
@@ -75,12 +83,15 @@ printf '%s\n' "${entries[@]}" | jq -s '.' >"$MANIFEST"
 
 # Snapshot herdr agent panes so omarchy-session-restore-agents can resume them
 AGENTS="$STATE_DIR/herdr-agents.json"
+agent_count=0
 rm -f "$AGENTS"
 if command -v herdr &>/dev/null; then
   if agents_json=$(herdr agent list 2>/dev/null) &&
     [[ $(jq '.result.agents | length' <<<"$agents_json" 2>/dev/null || echo 0) -gt 0 ]]; then
     jq '[.result.agents[] | {agent, pane_id, cwd}]' <<<"$agents_json" >"$AGENTS"
+    agent_count=$(jq 'length' "$AGENTS")
   fi
 fi
 
+log "saved ${#entries[@]} window(s) and $agent_count agent(s)"
 [[ ${1:-} == --quiet ]] || echo "Saved ${#entries[@]} window(s) to $MANIFEST"

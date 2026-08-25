@@ -71,6 +71,7 @@ State lives in `~/.local/state/omarchy/`:
 - `session.json` — the window manifest (renamed to `.restored` after use)
 - `herdr-agents.json` — agent panes to resume (also consumed after use)
 - `session.lock` — guards against concurrent restores
+- `session-restore.log` — timestamped save, window launch, and agent resume results
 
 ## Removal
 
@@ -80,7 +81,7 @@ omarchy plugin remove io.github.wbarakat.session-restore
 
 Then remove the menu entries you added to
 `~/.config/omarchy/extensions/omarchy-menu.jsonc` (if any) and, optionally,
-the state files: `rm -f ~/.local/state/omarchy/session.json* ~/.local/state/omarchy/herdr-agents.json* ~/.local/state/omarchy/session.lock`
+the state files: `rm -f ~/.local/state/omarchy/session.json* ~/.local/state/omarchy/herdr-agents.json* ~/.local/state/omarchy/session.lock ~/.local/state/omarchy/session-restore.log`
 
 For a manual install, additionally delete the three `omarchy-session-*`
 scripts from `~/.local/bin` and

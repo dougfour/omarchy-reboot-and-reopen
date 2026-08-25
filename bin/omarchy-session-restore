@@ -8,6 +8,11 @@ set -euo pipefail
 SCRIPT_DIR=$(dirname "$(realpath "$0")")
 MANIFEST="$HOME/.local/state/omarchy/session.json"
 mkdir -p "$(dirname "$MANIFEST")"
+LOG="${MANIFEST%.json}-restore.log"
+
+log() {
+  printf '%s restore: %s\n' "$(date --iso-8601=seconds)" "$*" >>"$LOG"
+}
 
 # Only one restore may run at a time: the shell plugin service and the
 # post-boot hook can both fire around login.
@@ -19,11 +24,14 @@ flock -n 9 || exit 0
 dry_run=false
 [[ ${1:-} == --dry-run ]] && dry_run=true
 
+$dry_run || log "started ($(jq 'length' "$MANIFEST") window(s))"
+
 launcher=""
 command -v uwsm-app &>/dev/null && launcher="uwsm-app -- "
 
 while IFS= read -r entry; do
   ws=$(jq -r '.workspace' <<<"$entry")
+  class=$(jq -r '.class' <<<"$entry")
   cmd=$(jq -r '.cmd' <<<"$entry")
   cwd=$(jq -r '.cwd' <<<"$entry")
   floating=$(jq -r '.floating' <<<"$entry")
@@ -46,13 +54,19 @@ while IFS= read -r entry; do
   if $dry_run; then
     echo "hyprctl eval '$lua'"
   else
-    hyprctl eval "$lua" >/dev/null
+    if hyprctl eval "$lua" >/dev/null; then
+      log "launched $class on workspace $ws"
+    else
+      log "failed to launch $class on workspace $ws"
+      exit 1
+    fi
     sleep 0.2 # stagger launches so the compositor applies each workspace rule cleanly
   fi
 done < <(jq -c '.[]' "$MANIFEST")
 
 # Consume the manifest so the next boot doesn't relaunch everything again
 $dry_run || mv "$MANIFEST" "$MANIFEST.restored"
+$dry_run || log "completed"
 
 # Resume AI agents inside herdr once its relaunched window brings the server up
 if [[ -f $HOME/.local/state/omarchy/herdr-agents.json ]]; then
