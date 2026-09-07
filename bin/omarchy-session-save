@@ -18,7 +18,10 @@ log() {
 log "started"
 
 TERMINAL_CLASSES=(Alacritty kitty foot com.mitchellh.ghostty org.wezfurlong.wezterm)
-SKIP_CLASSES=(walker)
+# steam: the window belongs to the steamwebhelper subprocess, so /proc gives a
+# relative ./steamwebhelper path and a -steampid from the boot that is ending.
+# Nothing usable to relaunch; Steam's own autostart handles it.
+SKIP_CLASSES=(walker steam)
 
 is_in() {
   local x=$1 i

@@ -70,11 +70,14 @@ while IFS= read -r entry; do
   if $dry_run; then
     echo "hyprctl eval '$lua'"
   else
-    if hyprctl eval "$lua" >/dev/null; then
-      log "launched $class on workspace $ws"
+    # hyprctl exits 0 even when the Lua it was handed fails, so the only
+    # signal is the "error:" line it prints. A bad entry is logged and
+    # skipped rather than stranding the rest of the session.
+    out=$(hyprctl eval "$lua" 2>&1) || true
+    if [[ $out == error:* ]]; then
+      log "failed to launch $class on workspace $ws: ${out#error: }"
     else
-      log "failed to launch $class on workspace $ws"
-      exit 1
+      log "launched $class on workspace $ws"
     fi
     sleep 0.2 # stagger launches so the compositor applies each workspace rule cleanly
   fi
