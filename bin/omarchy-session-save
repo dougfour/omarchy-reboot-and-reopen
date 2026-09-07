@@ -50,10 +50,25 @@ while IFS= read -r client; do
   seen_pids+="$pid "
 
   # Rebuild a shell-safe launch command from the process's original argv
-  cmd=""
+  args=()
   while IFS= read -r -d '' arg; do
-    cmd+="$(printf '%q' "$arg") "
+    args+=("$arg")
   done <"/proc/$pid/cmdline"
+  ((${#args[@]} > 0)) || continue
+
+  # Chrome rewrites its own argv, so /proc reports a single element holding
+  # the whole command line. Quoting that blob turns it into one impossible
+  # argument ("Path ... does not exist"), so split it back into words when
+  # the blob is not itself a path and its first token is the executable.
+  if ((${#args[@]} == 1)) && [[ ${args[0]} == *" "* && ! -x ${args[0]} ]]; then
+    first=${args[0]%% *}
+    [[ -x $first ]] && read -r -a args <<<"${args[0]}"
+  fi
+
+  cmd=""
+  for arg in "${args[@]}"; do
+    cmd+="$(printf '%q' "$arg") "
+  done
   cmd=${cmd% }
   [[ -n $cmd ]] || continue
 
