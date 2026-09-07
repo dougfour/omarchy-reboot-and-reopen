@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# omarchy:summary=Remove the session-restore rows from the Omarchy menu
+# omarchy:args=[--quiet]
+
+# Strips only this plugin's marked block. Rows you added yourself are left
+# exactly as they are.
+
+set -euo pipefail
+
+MENU="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
+BEGIN="  // >>> session-restore (managed block"
+END="  // <<< session-restore"
+
+quiet=false
+[[ ${1:-} == --quiet ]] && quiet=true
+
+[[ -f $MENU ]] || { $quiet || echo "No menu file at $MENU"; exit 0; }
+grep -qF "$BEGIN" "$MENU" || { $quiet || echo "No session-restore block to remove"; exit 0; }
+
+cp -a "$MENU" "$MENU.bak.$(date +%s)"
+awk -v b="$BEGIN" -v e="$END" '
+  index($0, b) == 1 { skip = 1 }
+  !skip { print }
+  index($0, e) == 1 { skip = 0 }
+' "$MENU" >"$MENU.tmp" && mv "$MENU.tmp" "$MENU"
+
+command -v omarchy &>/dev/null && omarchy menu refresh >/dev/null 2>&1 || true
+$quiet || echo "Removed the session-restore rows from $MENU"

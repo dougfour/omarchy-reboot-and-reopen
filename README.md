@@ -1,5 +1,8 @@
 # Session Restore for Omarchy
 
+> **Fork.** Patched copy of [wbarakat/omarchy-session-restore](https://github.com/wbarakat/omarchy-session-restore)
+> with three fixes and a menu installer — see [Fork changes](#fork-changes).
+
 Save your open windows before a reboot, get them back on your workspaces after
 the next boot — including terminal working directories and, if you use herdr,
 your resumed AI agent sessions.
@@ -111,6 +114,45 @@ preserve actual application state across a reboot:
   fresh.
 - Saves triggered outside the menu (plain `systemctl reboot`) require running
   `omarchy-session-save` manually first.
+
+## Setting it up on another machine
+
+```bash
+omarchy plugin add https://github.com/dougfour/omarchy-session-restore.git --enable
+~/.config/omarchy/plugins/io.github.wbarakat.session-restore/bin/install-menu
+```
+
+The first command installs and enables the plugin, which restores at login.
+The second adds the Save Session / Reboot / Shutdown rows to the Omarchy menu,
+so a power action snapshots the session first — without it nothing is ever
+saved and the plugin sits idle. It writes one marked block and refreshes the
+menu; re-running it is a no-op, and `bin/remove-menu` takes only that block
+back out.
+
+Update everywhere later with `omarchy plugin update io.github.wbarakat.session-restore`.
+
+## Fork changes
+
+- **Never replay a manifest inside the boot that saved it.** The service runs
+  the restore at every shell start, but the manifest is only consumed after a
+  fully successful run, so a manual save followed by any shell restart
+  relaunched every saved window as a duplicate. The save now stamps the boot
+  id beside the manifest and the restore skips a matching one. Manifests
+  without a stamp restore as before.
+- **Detect launch failures.** `hyprctl` exits 0 even when the Lua it was
+  handed fails — the only signal is the `error:` line it prints, which was
+  being discarded — so every entry was logged as launched whether or not it
+  was, and the `exit 1` branch was unreachable. The output is now read, the
+  real reason logged, and the remaining windows still restored.
+- **Skip `steam`.** Its window belongs to the `steamwebhelper` subprocess, so
+  `/proc` yields a relative `./steamwebhelper` path plus a `-steampid` from
+  the boot that is ending. Nothing usable to relaunch.
+- **`bin/install-menu` / `bin/remove-menu`.** The upstream menu snippet is a
+  manual copy-paste; these do it idempotently and reversibly.
+
+Known limits, unchanged from upstream: placement is per workspace, not per
+position or size, and windows sharing one process (several Chrome windows, or
+several windows of a single-instance terminal) restore as one.
 
 ## License
 

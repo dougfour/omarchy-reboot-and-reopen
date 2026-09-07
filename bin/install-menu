@@ -1,0 +1,74 @@
+#!/bin/bash
+
+# omarchy:summary=Add the Save Session / Reboot / Shutdown rows to the Omarchy menu
+# omarchy:args=[--force]
+
+# The plugin restores at login on its own, but nothing ever gets saved until
+# the power actions snapshot first. This writes one marked block into
+# ~/.config/omarchy/extensions/omarchy-menu.jsonc and nothing else. Re-running
+# it is a no-op; bin/remove-menu takes the same block back out.
+
+set -euo pipefail
+
+MENU="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
+BEGIN="  // >>> session-restore (managed block"
+
+force=false
+[[ ${1:-} == --force ]] && force=true
+
+if [[ -f $MENU ]] && grep -qF "$BEGIN" "$MENU"; then
+  if ! $force; then
+    echo "Menu rows already installed. Use --force to rewrite them."
+    exit 0
+  fi
+  "$(dirname "$(realpath "$0")")/remove-menu" --quiet
+fi
+
+mkdir -p "$(dirname "$MENU")"
+if [[ -f $MENU ]]; then
+  cp -a "$MENU" "$MENU.bak.$(date +%s)"
+else
+  printf '{\n}\n' >"$MENU"
+fi
+
+# Quoted heredoc: the JSON escapes and the ~ path must survive verbatim.
+block=$(mktemp)
+trap 'rm -f "$block" "$MENU.tmp"' EXIT
+cat >"$block" <<'BLOCK'
+
+  // >>> session-restore (managed block — rewrite with bin/install-menu --force)
+  // Snapshot the open windows before a power action so the next boot can
+  // relaunch them. Joined with ";" so a failed save never blocks the action.
+  "system.session-save": {
+    "icon": "󰆓",
+    "label": "Save Session",
+    "description": "Save open windows to restore on next boot",
+    "action": "~/.config/omarchy/plugins/io.github.wbarakat.session-restore/bin/omarchy-session-save --quiet && omarchy-notification-send -g 󰆓 \"Session saved\" \"Your windows will be restored on next boot\""
+  },
+
+  "system.reboot": {
+    "icon": "󰜉",
+    "label": "Reboot",
+    "action": "~/.config/omarchy/plugins/io.github.wbarakat.session-restore/bin/omarchy-session-save --quiet; omarchy-system-reboot"
+  },
+
+  "system.shutdown": {
+    "icon": "󰐥",
+    "label": "Shutdown",
+    "action": "~/.config/omarchy/plugins/io.github.wbarakat.session-restore/bin/omarchy-session-save --quiet; omarchy-system-shutdown"
+  },
+  // <<< session-restore
+BLOCK
+
+# Insert before the final closing brace, wherever the user's own rows end.
+last=$(grep -n '^[[:space:]]*}[[:space:]]*$' "$MENU" | tail -1 | cut -d: -f1)
+[[ -n $last ]] || { echo "No closing brace found in $MENU" >&2; exit 1; }
+
+{
+  head -n "$((last - 1))" "$MENU"
+  cat "$block"
+  tail -n "+$last" "$MENU"
+} >"$MENU.tmp" && mv "$MENU.tmp" "$MENU"
+
+command -v omarchy &>/dev/null && omarchy menu refresh >/dev/null 2>&1 || true
+echo "Installed Save Session / Reboot / Shutdown rows into $MENU"
