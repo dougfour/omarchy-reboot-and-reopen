@@ -7,6 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(dirname "$(realpath "$0")")
 MANIFEST="$HOME/.local/state/omarchy/session.json"
+BOOT_STAMP="${MANIFEST%.json}.boot"
 mkdir -p "$(dirname "$MANIFEST")"
 LOG="${MANIFEST%.json}-restore.log"
 
@@ -23,6 +24,21 @@ flock -n 9 || exit 0
 
 dry_run=false
 [[ ${1:-} == --dry-run ]] && dry_run=true
+
+# A manifest stamped with the running boot was saved without a reboot in
+# between, so its windows are still on screen. Replaying it would duplicate
+# every one of them. Manifests with no stamp predate this guard and restore
+# as before.
+current_boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || true)
+saved_boot=$(cat "$BOOT_STAMP" 2>/dev/null || true)
+if [[ -n $current_boot && $saved_boot == "$current_boot" ]]; then
+  if $dry_run; then
+    echo "# note: saved in the running boot — a real restore would skip this manifest"
+  else
+    log "skipped: manifest saved in the running boot, no reboot since"
+    exit 0
+  fi
+fi
 
 $dry_run || log "started ($(jq 'length' "$MANIFEST") window(s))"
 
@@ -66,6 +82,7 @@ done < <(jq -c '.[]' "$MANIFEST")
 
 # Consume the manifest so the next boot doesn't relaunch everything again
 $dry_run || mv "$MANIFEST" "$MANIFEST.restored"
+$dry_run || rm -f "$BOOT_STAMP"
 $dry_run || log "completed"
 
 # Resume AI agents inside herdr once its relaunched window brings the server up
