@@ -52,10 +52,32 @@ while IFS= read -r saved; do
     target=$(jq -r --arg c "$cwd" \
       '.result.panes[] | select(.cwd == $c and (has("agent") | not)) | .pane_id' <<<"$panes" | head -1)
   fi
+  # A restored herdr session comes up with a single pane, so the second and
+  # later saved agents have nowhere to land. Make a tab rather than drop them.
+  if [[ -z $target ]]; then
+    if $dry_run; then
+      echo "herdr tab create${cwd:+ --cwd $cwd}   # then resume $kind in its root pane"
+      target="(new pane)"
+    else
+      create_args=(tab create)
+      [[ -n $cwd ]] && create_args+=(--cwd "$cwd")
+      if created=$(herdr "${create_args[@]}" 2>/dev/null); then
+        target=$(jq -r '.result.root_pane.pane_id // empty' <<<"$created")
+        [[ -n $target ]] && log "created pane $target for $kind in $cwd"
+      fi
+    fi
+  fi
+
   if [[ -z $target ]]; then
     $dry_run || log "no free pane for $kind in $cwd"
     notify-send "Session restore" "No free herdr pane found to resume $kind in $cwd" 2>/dev/null
     continue
+  fi
+
+  # A real run refreshes the pane list after each agent starts; the preview
+  # has to drop the pane itself or it shows every agent landing in the same one.
+  if $dry_run && [[ $target != "(new pane)" ]]; then
+    panes=$(jq --arg t "$target" '.result.panes |= map(select(.pane_id != $t))' <<<"$panes")
   fi
 
   # Only claude gets a resume flag; other agent kinds start fresh
