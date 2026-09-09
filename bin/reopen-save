@@ -30,18 +30,14 @@ is_in() {
   return 1
 }
 
-# herdr runs as a TUI inside a terminal and has no window of its own, so the
-# only trace of it is a client process under the terminal's pid.
-terminal_runs_herdr() {
-  local root=$1 p ppid
-  for p in $(pgrep -x herdr 2>/dev/null || true); do
-    ppid=$p
-    while [[ -n $ppid ]] && ((ppid > 1)); do
-      [[ $ppid == "$root" ]] && return 0
-      ppid=$(awk '/^PPid:/{print $2}' "/proc/$ppid/status" 2>/dev/null) || break
-    done
-  done
-  return 1
+# herdr runs as a TUI with no window of its own. Process ancestry cannot find
+# it: once this plugin has restored herdr through uwsm-app it lives in its own
+# systemd scope, reparented away from any terminal, so an ancestry check works
+# on the first boot and silently stops working on every one after. Ask the
+# server instead.
+herdr_running() {
+  command -v herdr &>/dev/null || return 1
+  herdr status server 2>/dev/null | grep -q '^status: running'
 }
 
 entries=()
@@ -90,7 +86,11 @@ while IFS= read -r client; do
   # For terminals, record the shell's working directory so it can be restored
   cwd=""
   if is_in "$class" "${TERMINAL_CLASSES[@]}"; then
-    ((herdr_ws > 0)) || ! terminal_runs_herdr "$pid" || herdr_ws=$ws
+    # Where herdr is put back. Its own window cannot be identified -- a
+    # single-instance terminal shares one pid across every window -- so it
+    # goes to the first terminal workspace, which is where it came from in
+    # any normal layout.
+    ((herdr_ws > 0)) || herdr_ws=$ws
     shell_pid=$(pgrep -P "$pid" 2>/dev/null | tail -n1 || true)
     if [[ -n ${shell_pid:-} ]]; then
       dir=$(readlink -f "/proc/$shell_pid/cwd" 2>/dev/null || true)
@@ -111,7 +111,8 @@ done < <(hyprctl clients -j | jq -c '.[]')
 # starts, its server never comes up, and the agent resume below finds nothing
 # to attach to. Add one entry that launches it the way SUPER CTRL + RETURN
 # does. herdr restores its own panes and their directories, so no cwd.
-if ((herdr_ws > 0)) && command -v omarchy-launch-terminal-herdr &>/dev/null; then
+if herdr_running && command -v omarchy-launch-terminal-herdr &>/dev/null; then
+  ((herdr_ws > 0)) || herdr_ws=1
   entries+=("$(jq -n \
     --arg class "herdr" \
     --argjson workspace "$herdr_ws" \
