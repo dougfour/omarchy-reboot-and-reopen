@@ -40,10 +40,41 @@ fi
 
 sleep 3 # let the restored panes settle at their shell prompts
 
+# herdr restores its own agents, asynchronously and with their sessions
+# intact. Racing that starts a second, sessionless agent on top of a good
+# one, so wait until its agent list stops changing before deciding anything.
+prev="x"
+for _ in $(seq 14); do
+  cur=$(herdr agent list 2>/dev/null |
+    jq -c '[.result.agents[]? | {agent, cwd}] | sort' 2>/dev/null || echo "[]")
+  [[ $cur == "$prev" ]] && break
+  prev=$cur
+  sleep 2
+done
+live=$prev
+[[ $live == "x" ]] && live="[]"
+$dry_run || log "herdr settled with $(jq 'length' <<<"$live") agent(s) of its own"
+
 while IFS= read -r saved; do
   kind=$(jq -r '.agent' <<<"$saved")
   saved_pane=$(jq -r '.pane_id' <<<"$saved")
   cwd=$(jq -r '.cwd' <<<"$saved")
+
+  # Anything herdr already restored is left alone: it kept the real session,
+  # and a second one here would only duplicate it. Matches are consumed, so
+  # two saved agents of one kind still need two live ones to be covered.
+  if [[ $(jq --arg k "$kind" --arg c "$cwd" \
+    '[.[] | select(.agent == $k and .cwd == $c)] | length' <<<"$live") -gt 0 ]]; then
+    live=$(jq --arg k "$kind" --arg c "$cwd" \
+      '(map(.agent == $k and .cwd == $c) | index(true)) as $i
+       | if $i == null then . else del(.[$i]) end' <<<"$live")
+    if $dry_run; then
+      echo "# $kind in $cwd already restored by herdr — nothing to do"
+    else
+      log "skipped $kind in $cwd: herdr restored it itself"
+    fi
+    continue
+  fi
 
   # Prefer the same pane id. Fall back to an agent-free pane with the same cwd.
   target=$(jq -r --arg p "$saved_pane" \
@@ -84,13 +115,25 @@ while IFS= read -r saved; do
   args=()
   [[ $kind == claude ]] && args=(--continue)
 
+  # herdr keys agents by name, so a second agent of the same kind is
+  # rejected with agent_name_taken unless it gets a distinct one.
+  taken=$(herdr agent list 2>/dev/null | jq -r '[.result.agents[]?.agent] | join(" ")' 2>/dev/null || true)
+  name=$kind
+  suffix=2
+  while [[ " $taken " == *" $name "* ]] && ((suffix <= 20)); do
+    name="$kind-$suffix"
+    ((suffix++))
+  done
+
   if $dry_run; then
-    echo "herdr agent start $kind --kind $kind --pane $target --timeout 60000 -- ${args[*]:-}"
+    echo "herdr agent start $name --kind $kind --pane $target --timeout 60000 -- ${args[*]:-}"
   else
-    if herdr agent start "$kind" --kind "$kind" --pane "$target" --timeout 60000 -- "${args[@]}" >/dev/null 2>&1; then
-      log "resumed $kind in pane $target"
+    if out=$(herdr agent start "$name" --kind "$kind" --pane "$target" --timeout 60000 -- "${args[@]}" 2>&1); then
+      log "resumed $kind as $name in pane $target"
     else
-      log "failed to resume $kind in pane $target"
+      reason=$(jq -r '.error.message // empty' <<<"$out" 2>/dev/null || true)
+      [[ -n $reason ]] || reason=$(tr '\n' ' ' <<<"$out" | cut -c1-160)
+      log "failed to resume $kind in pane $target: $reason"
       notify-send "Session restore" "Could not resume $kind in herdr pane $target" 2>/dev/null
     fi
     panes=$(herdr pane list 2>/dev/null) || break # refresh so the next agent picks a different pane
