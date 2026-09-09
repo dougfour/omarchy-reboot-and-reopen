@@ -42,6 +42,15 @@ fi
 
 $dry_run || log "started ($(jq 'length' "$MANIFEST") window(s))"
 
+# A workspace rule on an exec only binds windows made by the process Hyprland
+# spawned. An app that is already running -- every webapp after the browser is
+# up, since they all live in the browser process -- creates its window itself,
+# the rule never matches, and it lands on whatever workspace is active. Note
+# what was already on screen and what each launch was aiming for, then put the
+# strays right once everything has appeared.
+targets=()
+pre_addrs=" $(hyprctl clients -j 2>/dev/null | jq -r '.[].address' | tr '\n' ' ')"
+
 launcher=""
 command -v uwsm-app &>/dev/null && launcher="uwsm-app -- "
 
@@ -78,10 +87,65 @@ while IFS= read -r entry; do
       log "failed to launch $class on workspace $ws: ${out#error: }"
     else
       log "launched $class on workspace $ws"
+      targets+=("$ws $class")
     fi
     sleep 0.2 # stagger launches so the compositor applies each workspace rule cleanly
   fi
 done < <(jq -c '.[]' "$MANIFEST")
+
+# Put right anything the workspace rule could not bind. Only windows that were
+# not on screen before the restore are touched, and each is claimed once, so a
+# class with two entries fills both of its workspaces instead of stacking.
+if ! $dry_run && ((${#targets[@]} > 0)); then
+  settle=0
+  prev_count=-1
+  while ((settle < 20)); do
+    count=$(hyprctl clients -j 2>/dev/null | jq 'length')
+    [[ $count == "$prev_count" ]] && break
+    prev_count=$count
+    settle=$((settle + 1))
+    sleep 0.5
+  done
+
+  orig_ws=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.id')
+
+  claimed=" "
+  for target in "${targets[@]}"; do
+    want=${target%% *}
+    class=${target#* }
+
+    # Already where it belongs? Claim it and leave it alone.
+    addr=$(hyprctl clients -j 2>/dev/null | jq -r --arg c "$class" --argjson w "$want" \
+      '[.[] | select(.class == $c and .workspace.id == $w)] | .[].address' |
+      while read -r a; do
+        [[ $pre_addrs == *" $a "* || $claimed == *" $a "* ]] && continue
+        echo "$a"; break
+      done)
+    if [[ -n $addr ]]; then
+      claimed+="$addr "
+      continue
+    fi
+
+    # Otherwise find a stray of this class and move it.
+    addr=$(hyprctl clients -j 2>/dev/null | jq -r --arg c "$class" \
+      '[.[] | select(.class == $c and .workspace.id > 0)] | .[].address' |
+      while read -r a; do
+        [[ $pre_addrs == *" $a "* || $claimed == *" $a "* ]] && continue
+        echo "$a"; break
+      done)
+    [[ -n $addr ]] || continue
+    claimed+="$addr "
+
+    hyprctl eval "hl.dispatch(hl.dsp.focus({ window = [=[address:$addr]=] }))" >/dev/null 2>&1
+    hyprctl eval "hl.dispatch(hl.dsp.window.move({ workspace = [=[$want]=], follow = false }))" >/dev/null 2>&1
+    log "moved $class to workspace $want (the exec rule did not bind it)"
+  done
+
+  # Focusing a stray can pull the view to another workspace, so go back to the
+  # one that was showing before any of this started.
+  [[ -n $orig_ws ]] &&
+    hyprctl eval "hl.dispatch(hl.dsp.focus({ workspace = [=[$orig_ws]=] }))" >/dev/null 2>&1
+fi
 
 # Consume the manifest so the next boot doesn't relaunch everything again
 $dry_run || mv "$MANIFEST" "$MANIFEST.restored"
