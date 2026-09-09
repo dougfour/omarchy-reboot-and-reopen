@@ -1,10 +1,12 @@
 {
   "schemaVersion": 1,
-  "id": "io.github.wbarakat.session-restore",
-  "name": "Session Restore",
-  "version": "1.0.1",
-  "author": "Waleed",
-  "description": "Save open windows before reboot or shutdown and restore them on the next boot — dual-boot friendly, with optional herdr agent resume",
+  "id": "io.github.dougfour.reopen",
+  "name": "Reboot and Reopen",
+  "version": "1.0.0",
+  "author": "dougfour",
+  "license": "MIT",
+  "homepage": "https://github.com/dougfour/omarchy-reboot-and-reopen",
+  "description": "Your windows come back on their workspaces after a reboot — Chrome included. Snapshots the session when you reboot or shut down, relaunches it at login, and resumes herdr agents.",
   "kinds": [
     "service"
   ],

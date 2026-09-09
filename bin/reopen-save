@@ -130,12 +130,12 @@ fi
 
 printf '%s\n' "${entries[@]}" | jq -s '.' >"$MANIFEST"
 
-# Stamp the boot this manifest belongs to. omarchy-session-restore refuses to
+# Stamp the boot this manifest belongs to. reopen-restore refuses to
 # replay a manifest inside the same boot, so a manual save followed by a shell
 # restart cannot relaunch windows that are still open.
 cat /proc/sys/kernel/random/boot_id >"$BOOT_STAMP" 2>/dev/null || rm -f "$BOOT_STAMP"
 
-# Snapshot herdr agent panes so omarchy-session-restore-agents can resume them
+# Snapshot herdr agent panes so reopen-restore-agents can resume them
 AGENTS="$STATE_DIR/herdr-agents.json"
 agent_count=0
 rm -f "$AGENTS"

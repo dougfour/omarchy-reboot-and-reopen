@@ -1,158 +1,112 @@
-# Session Restore for Omarchy
+# Reboot and Reopen
 
-> **Fork.** Patched copy of [wbarakat/omarchy-session-restore](https://github.com/wbarakat/omarchy-session-restore)
-> with three fixes and a menu installer — see [Fork changes](#fork-changes).
+Your windows come back on their workspaces after a reboot — Chrome included.
 
-Save your open windows before a reboot, get them back on your workspaces after
-the next boot — including terminal working directories and, if you use herdr,
-your resumed AI agent sessions.
-
-Built for the dual-boot workflow: reboot into another OS, boot back into
-Omarchy, and pick up where you left off.
-
-## What it does
-
-- **Save** captures every open window: its launch command (rebuilt from
-  `/proc/<pid>/cmdline`), workspace, floating state, and — for terminals —
-  the shell's working directory.
-- **Restore** runs automatically when the Omarchy shell starts after login
-  and relaunches each window silently onto its saved workspace, without
-  stealing focus. Terminals start back in their saved directories.
-- **Agent resume** (optional): if a herdr server was running at save time, the
-  restore waits for herdr to come back and restarts `claude --continue` in the
-  matching pane, so your Claude Code conversation resumes by itself.
-- The saved manifest is locked and consumed after one restore, so a boot (or
-  a shell restart) never double-launches anything.
+Reboot or shut down from the Omarchy menu and the session is snapshotted
+first. On the next login the windows relaunch silently onto the workspaces
+they were on, terminals reopen in their old directories, and herdr agents
+carry on where they left off.
 
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/wbarakat/omarchy-session-restore.git --enable
+omarchy plugin add https://github.com/dougfour/omarchy-reboot-and-reopen.git --enable
+~/.config/omarchy/plugins/io.github.dougfour.reopen/bin/install-menu
 ```
 
-The plugin's `service` entry point runs the restore at shell startup. Saving
-is manual (see Usage) until you add the optional menu integration below.
+Both commands matter. The first installs the plugin, which does the
+restoring. The second adds the **Save Session**, **Reboot** and **Shutdown**
+rows to the Omarchy menu, which is what does the saving — without it the
+plugin sits idle and nothing is ever captured.
 
-**Menu integration (recommended):** merge
-`extensions/omarchy-menu-snippet.jsonc` into
-`~/.config/omarchy/extensions/omarchy-menu.jsonc` and run
-`omarchy menu refresh`. This adds a "Save Session" row to the System menu and
-makes Reboot and Shutdown save the session automatically first. This step
-edits your menu config, so it is deliberately manual — the plugin never
-changes your configuration by itself.
+`install-menu` writes one marked block into
+`~/.config/omarchy/extensions/omarchy-menu.jsonc` and refreshes the menu.
+Re-running it is a no-op. `bin/remove-menu` takes that block back out and
+leaves any rows you added yourself alone.
 
-<details>
-<summary>Manual install without the plugin system</summary>
+## Using it
+
+Reboot or shut down with **SUPER + ESCAPE** → Reboot. That is the whole
+workflow. The power actions snapshot the session first, joined with `;` so a
+failed save can never block the reboot.
+
+There is a **Save Session** row for taking a snapshot by hand. Saving without
+rebooting is safe: a manifest is stamped with the boot that wrote it and is
+never replayed inside that same boot, so a shell restart cannot relaunch
+windows that are still open.
+
+To see what a restore would do without running one:
 
 ```bash
-git clone https://github.com/wbarakat/omarchy-session-restore.git
-cd omarchy-session-restore
-./install.sh
+~/.config/omarchy/plugins/io.github.dougfour.reopen/bin/reopen-restore --dry-run
 ```
-
-This copies the scripts to `~/.local/bin` and installs a `post-boot` hook
-instead of the shell service. In the menu snippet, replace the plugin paths
-with `~/.local/bin/...`. Use either the plugin or the manual install, not
-both.
-
-</details>
-
-## Usage
-
-```bash
-~/.config/omarchy/plugins/io.github.wbarakat.session-restore/bin/omarchy-session-save
-# preview what a restore would launch:
-~/.config/omarchy/plugins/io.github.wbarakat.session-restore/bin/omarchy-session-restore --dry-run
-```
-
-With the menu integration installed, saving is automatic: reboot or shut down
-from the Omarchy menu and the session is snapshotted first. On the next boot
-into Omarchy everything relaunches within a few seconds of login.
 
 State lives in `~/.local/state/omarchy/`:
 
-- `session.json` — the window manifest (renamed to `.restored` after use)
-- `herdr-agents.json` — agent panes to resume (also consumed after use)
-- `session.lock` — guards against concurrent restores
-- `session-restore.log` — timestamped save, window launch, and agent resume results
+- `session.json` — the window manifest, renamed to `.restored` once used
+- `session.boot` — the boot id that manifest belongs to
+- `herdr-agents.json` — agents to resume, also consumed after use
+- `session-restore.log` — timestamped saves, launches and failures
 
-## Removal
+## What it captures
 
-```bash
-omarchy plugin remove io.github.wbarakat.session-restore
-```
+Per window: the launch command rebuilt from `/proc/<pid>/cmdline`, the
+workspace, floating state, and for terminals the shell's working directory.
+Steam is skipped — its window belongs to the `steamwebhelper` subprocess, so
+`/proc` yields a relative path and a PID from the boot that is ending.
 
-Then remove the menu entries you added to
-`~/.config/omarchy/extensions/omarchy-menu.jsonc` (if any) and, optionally,
-the state files: `rm -f ~/.local/state/omarchy/session.json* ~/.local/state/omarchy/herdr-agents.json* ~/.local/state/omarchy/session.lock ~/.local/state/omarchy/session-restore.log`
+herdr gets special handling. It runs as a TUI with no window of its own, so
+it is restored through `omarchy-launch-terminal-herdr`, the same thing
+**SUPER CTRL + RETURN** does. herdr then restores its own panes and agents,
+and this plugin waits for that to settle and only starts an agent herdr did
+not bring back itself.
 
-For a manual install, additionally delete the three `omarchy-session-*`
-scripts from `~/.local/bin` and
-`~/.config/omarchy/hooks/post-boot.d/10-session-restore`.
+## Limits
 
-## Requirements and dependencies
+Two of them are structural, not bugs:
 
-- Omarchy (Quattro) with Hyprland **0.56+** — the restore dispatches through
-  the Lua API: `hl.dispatch(hl.dsp.exec_cmd(...))`
-- `jq` and `flock` (both ship with Omarchy / util-linux)
-- Optional: herdr for agent resume; `notify-send` for save feedback
+- **Workspace, not geometry.** Windows return to the right workspace. Their
+  position and size are not restored — Hyprland does not expose or accept its
+  layout tree, so no tool can put a tiled arrangement back exactly.
+- **One window per process.** Windows that share a process collapse to one
+  entry, because `/proc` gives one command line for all of them. Several
+  Chrome windows, or several windows of a single-instance terminal, come back
+  as one. Chrome reopens the rest itself if you have "Continue where you left
+  off" enabled.
 
-No sudo, no network access, no external downloads. The plugin only reads
-`hyprctl` output and `/proc`, and writes state under `~/.local/state/omarchy/`.
-
-## Limitations
-
-This is best-effort relaunch, not process freezing — only hibernation can
-preserve actual application state across a reboot:
-
-- Apps reopen fresh. Browsers and editors restore their own sessions if they
-  are configured to; unsaved work is gone.
-- Windows sharing one process (e.g. several Chromium windows or web apps)
-  collapse to a single relaunch entry.
-- Scratchpad/special workspaces are skipped.
-- Only `claude` agents get a resume flag in herdr; other agent kinds start
-  fresh.
-- Saves triggered outside the menu (plain `systemctl reboot`) require running
-  `omarchy-session-save` manually first.
-
-## Setting it up on another machine
+Launch failures that happen after Hyprland forks are invisible to `hyprctl`,
+so if something does not come back, the journal has the real reason:
 
 ```bash
-omarchy plugin add https://github.com/dougfour/omarchy-session-restore.git --enable
-~/.config/omarchy/plugins/io.github.wbarakat.session-restore/bin/install-menu
+journalctl --user --since "-10 min" | grep uwsm_app-daemon
 ```
 
-The first command installs and enables the plugin, which restores at login.
-The second adds the Save Session / Reboot / Shutdown rows to the Omarchy menu,
-so a power action snapshots the session first — without it nothing is ever
-saved and the plugin sits idle. It writes one marked block and refreshes the
-menu; re-running it is a no-op, and `bin/remove-menu` takes only that block
-back out.
+## Credit
 
-Update everywhere later with `omarchy plugin update io.github.wbarakat.session-restore`.
+Built on [wbarakat/omarchy-session-restore](https://github.com/wbarakat/omarchy-session-restore),
+whose architecture this keeps — the `/proc` capture, the Lua long-bracket
+escaping, the manifest lock, the herdr pane matching. The full history of
+that original is preserved in this repository's git log.
 
-## Fork changes
+Changes since the fork:
 
-- **Never replay a manifest inside the boot that saved it.** The service runs
-  the restore at every shell start, but the manifest is only consumed after a
-  fully successful run, so a manual save followed by any shell restart
-  relaunched every saved window as a duplicate. The save now stamps the boot
-  id beside the manifest and the restore skips a matching one. Manifests
-  without a stamp restore as before.
-- **Detect launch failures.** `hyprctl` exits 0 even when the Lua it was
-  handed fails — the only signal is the `error:` line it prints, which was
-  being discarded — so every entry was logged as launched whether or not it
-  was, and the `exit 1` branch was unreachable. The output is now read, the
-  real reason logged, and the remaining windows still restored.
-- **Skip `steam`.** Its window belongs to the `steamwebhelper` subprocess, so
-  `/proc` yields a relative `./steamwebhelper` path plus a `-steampid` from
-  the boot that is ending. Nothing usable to relaunch.
-- **`bin/install-menu` / `bin/remove-menu`.** The upstream menu snippet is a
-  manual copy-paste; these do it idempotently and reversibly.
-
-Known limits, unchanged from upstream: placement is per workspace, not per
-position or size, and windows sharing one process (several Chrome windows, or
-several windows of a single-instance terminal) restore as one.
+- **Chrome and other Chromium apps launch at all.** Chrome rewrites its own
+  argv, so `/proc` reports the whole command line as a single element.
+  Quoting that blob made one impossible argument and every restore failed
+  with `Path "..." does not exist!` while still logging success.
+- **A manifest is never replayed in the boot that saved it.** The restore
+  runs at every shell start, so a manual save followed by a shell restart
+  relaunched every saved window on top of the ones still open.
+- **Launch failures are detected.** `hyprctl eval` exits 0 even when its Lua
+  fails, so failures were logged as successes and one bad entry could stop
+  the rest of the session from restoring.
+- **herdr comes back.** It has no window of its own, so nothing represented
+  it, its server never started, and the agent resume timed out every boot.
+- **Agents are no longer duplicated.** herdr restores its own agents with
+  their sessions intact; racing it started fresh, sessionless duplicates on
+  top of good ones.
+- **`install-menu` / `remove-menu`**, so the menu step survives being set up
+  on a second machine.
 
 ## License
 

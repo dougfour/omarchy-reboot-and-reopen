@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# omarchy:summary=Remove the session-restore rows from the Omarchy menu
+# omarchy:summary=Remove the Reboot and Reopen rows from the Omarchy menu
 # omarchy:args=[--quiet]
 
 # Strips only this plugin's marked block. Rows you added yourself are left
@@ -9,14 +9,14 @@
 set -euo pipefail
 
 MENU="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
-BEGIN="  // >>> session-restore (managed block"
-END="  // <<< session-restore"
+BEGIN="  // >>> reboot-and-reopen (managed block"
+END="  // <<< reboot-and-reopen"
 
 quiet=false
 [[ ${1:-} == --quiet ]] && quiet=true
 
 [[ -f $MENU ]] || { $quiet || echo "No menu file at $MENU"; exit 0; }
-grep -qF "$BEGIN" "$MENU" || { $quiet || echo "No session-restore block to remove"; exit 0; }
+grep -qF "$BEGIN" "$MENU" || { $quiet || echo "No Reboot and Reopen block to remove"; exit 0; }
 
 cp -a "$MENU" "$MENU.bak.$(date +%s)"
 awk -v b="$BEGIN" -v e="$END" '
@@ -26,4 +26,4 @@ awk -v b="$BEGIN" -v e="$END" '
 ' "$MENU" >"$MENU.tmp" && mv "$MENU.tmp" "$MENU"
 
 command -v omarchy &>/dev/null && omarchy menu refresh >/dev/null 2>&1 || true
-$quiet || echo "Removed the session-restore rows from $MENU"
+$quiet || echo "Removed the Reboot and Reopen rows from $MENU"

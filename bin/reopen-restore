@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# omarchy:summary=Relaunch windows saved by omarchy-session-save onto their workspaces
+# omarchy:summary=Relaunch windows saved by reopen-save onto their workspaces
 # omarchy:args=[--dry-run]
 
 set -euo pipefail
@@ -91,8 +91,8 @@ $dry_run || log "completed"
 # Resume AI agents inside herdr once its relaunched window brings the server up
 if [[ -f $HOME/.local/state/omarchy/herdr-agents.json ]]; then
   if $dry_run; then
-    "$SCRIPT_DIR/omarchy-session-restore-agents" --dry-run
+    "$SCRIPT_DIR/reopen-restore-agents" --dry-run
   else
-    setsid -f "$SCRIPT_DIR/omarchy-session-restore-agents" >/dev/null 2>&1
+    setsid -f "$SCRIPT_DIR/reopen-restore-agents" >/dev/null 2>&1
   fi
 fi

@@ -12,7 +12,7 @@ Item {
 
   Process {
     id: restoreProc
-    command: ["bash", root.pluginDir + "bin/omarchy-session-restore"]
+    command: ["bash", root.pluginDir + "bin/reopen-restore"]
   }
 
   Component.onCompleted: restoreProc.running = true

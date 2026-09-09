@@ -7,8 +7,8 @@
   // (joined with ";" so a failed save never blocks the power action).
   //
   // For a manual (non-plugin) install, replace the plugin path with
-  // ~/.local/bin/omarchy-session-save
-  "system.session-save": {"icon":"󰆓","label":"Save Session","description":"Save open windows to restore on next boot","action":"~/.config/omarchy/plugins/io.github.wbarakat.session-restore/bin/omarchy-session-save --quiet && notify-send 'Session saved' 'Your windows will be restored on next boot'"},
-  "system.reboot": {"icon":"󰜉","label":"Reboot","action":"~/.config/omarchy/plugins/io.github.wbarakat.session-restore/bin/omarchy-session-save --quiet; omarchy-system-reboot"},
-  "system.shutdown": {"icon":"󰐥","label":"Shutdown","action":"~/.config/omarchy/plugins/io.github.wbarakat.session-restore/bin/omarchy-session-save --quiet; omarchy-system-shutdown"}
+  // ~/.local/bin/reopen-save
+  "system.session-save": {"icon":"󰆓","label":"Save Session","description":"Save open windows to restore on next boot","action":"~/.config/omarchy/plugins/io.github.dougfour.reopen/bin/reopen-save --quiet && notify-send 'Session saved' 'Your windows will be restored on next boot'"},
+  "system.reboot": {"icon":"󰜉","label":"Reboot","action":"~/.config/omarchy/plugins/io.github.dougfour.reopen/bin/reopen-save --quiet; omarchy-system-reboot"},
+  "system.shutdown": {"icon":"󰐥","label":"Shutdown","action":"~/.config/omarchy/plugins/io.github.dougfour.reopen/bin/reopen-save --quiet; omarchy-system-shutdown"}
 }
