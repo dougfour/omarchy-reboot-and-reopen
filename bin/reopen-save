@@ -35,6 +35,31 @@ is_in() {
 # systemd scope, reparented away from any terminal, so an ancestry check works
 # on the first boot and silently stops working on every one after. Ask the
 # server instead.
+# Chromium app windows (omarchy webapps) all belong to the browser's process,
+# so /proc reports the browser's command line for every one of them and the
+# pid dedupe below drops them all. Their class carries the app instead, and
+# the desktop entry that created them carries the real launch command.
+webapp_command_for() {
+  local class=$1 rest host url f
+  case $class in
+    chrome-*-* | chromium-*-* | brave-*-* | msedge-*-*) ;;
+    *) return 1 ;;
+  esac
+  rest=${class#*-}
+  rest=${rest%-*}          # drop the trailing browser-profile segment
+  host=${rest%%_*}         # the path, if any, follows the host as _segments
+  [[ -n $host ]] || return 1
+  for f in "$HOME/.local/share/applications"/*.desktop; do
+    [[ -f $f ]] || continue
+    url=$(sed -n 's/^Exec=omarchy-launch-webapp \(.*\)$/\1/p' "$f" 2>/dev/null | head -1)
+    [[ -n $url ]] || continue
+    case $url in
+      *"//$host/"* | *"//$host") printf 'omarchy-launch-webapp %s' "$(printf '%q' "$url")"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
 herdr_running() {
   command -v herdr &>/dev/null || return 1
   herdr status server 2>/dev/null | grep -q '^status: running'
@@ -42,6 +67,7 @@ herdr_running() {
 
 entries=()
 seen_pids=" "
+seen_webapps=" "
 herdr_ws=0
 
 while IFS= read -r client; do
@@ -55,10 +81,29 @@ while IFS= read -r client; do
   is_in "$class" "${SKIP_CLASSES[@]}" && continue
   [[ -r /proc/$pid/cmdline ]] || continue
 
-  # Windows sharing a process (e.g. multiple Chromium windows) can only be
-  # relaunched once, so keep the first occurrence only.
-  [[ $seen_pids == *" $pid "* ]] && continue
-  seen_pids+="$pid "
+  # A webapp is identified by its class, not its pid, so several of them plus
+  # the browser itself all survive instead of collapsing into one entry.
+  webapp=$(webapp_command_for "$class" || true)
+  if [[ -n $webapp ]]; then
+    [[ $seen_webapps == *" $class "* ]] && continue
+    seen_webapps+="$class "
+  else
+    # Windows sharing a process (e.g. multiple Chromium windows) can only be
+    # relaunched once, so keep the first occurrence only.
+    [[ $seen_pids == *" $pid "* ]] && continue
+    seen_pids+="$pid "
+  fi
+
+  if [[ -n $webapp ]]; then
+    entries+=("$(jq -n \
+      --arg class "$class" \
+      --argjson workspace "$ws" \
+      --argjson floating "$floating" \
+      --arg cmd "$webapp" \
+      --arg cwd "" \
+      '{class: $class, workspace: $workspace, floating: $floating, cmd: $cmd, cwd: $cwd}')")
+    continue
+  fi
 
   # Rebuild a shell-safe launch command from the process's original argv
   args=()
